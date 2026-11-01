@@ -8,7 +8,6 @@
 <title>父の見守り</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏠</text></svg>">
 <style>
-/* ===== 判定の目安（仮）: mimamori.py の値に合わせて変えてください ===== */
 :root{
   --bg:#eef1ef; --ink:#1f2a27; --sub:#5b6864; --line:#d3dad7; --card:#ffffff;
   --ok:#2f8a5b; --ok-bg:#e1f2e8;
@@ -46,7 +45,7 @@ h1{font-size:1.15rem;margin:0;font-weight:700}
 }
 .status .label{font-size:2rem;font-weight:800;line-height:1.25;color:var(--gray)}
 .status .detail{margin-top:6px;font-size:1rem;white-space:pre-line}
-.status .note{margin-top:6px;font-size:.85rem;color:var(--sub)}
+.status .note{margin-top:6px;font-size:.85rem;color:var(--sub);white-space:pre-line}
 .status.ok  {background:var(--ok-bg);  border-color:var(--ok)}   .status.ok .label{color:var(--ok)}
 .status.warn{background:var(--warn-bg);border-color:var(--warn)} .status.warn .label{color:var(--warn)}
 .status.bad {background:var(--bad-bg); border-color:var(--bad)}  .status.bad .label{color:var(--bad)}
@@ -111,9 +110,14 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--warn);outline-o
 </main>
 
 <script>
-// ===== 判定の目安（仮）: mimamori.py の値に合わせて変えてください =====
-const WARN_HOURS = 6;   // これ以上合図がないと「黄」
-const BAD_HOURS  = 10;  // これ以上合図がないと「赤」
+// ===== 判定ルール：mimamori.py と同じ値にする =====
+const MORNING_FROM   = [5, 0];    // この時刻以降の合図を「朝の合図」とみなす
+const DEADLINE_WEEK  = [8, 30];   // 月〜土：この時刻までに朝の合図がないと通知
+const DEADLINE_SUN   = [10, 30];  // 日曜：同上
+const DAY_FROM       = [9, 0];    // 日中の監視の開始
+const NIGHT_FROM     = [23, 30];  // ここから朝までは監視しない
+const DAY_GAP_HOURS  = 8;         // 日中、最後の合図からこの時間で通知
+const WARN_BEFORE_H  = 2;         // 通知の何時間前から黄色にするか（画面だけの設定）
 const REFRESH_MIN = 5;  // 自動更新の間隔（分）
 
 const KINDS = {
@@ -164,7 +168,7 @@ async function load(){
       .sort((a,b) => b.at - a.at);
     render(items);
   }catch(e){
-    setStatus("", "つながりません", "ntfy に接続できませんでした（" + e.message + "）。", "電波を確認して「今すぐ更新」を押してください。");
+    setStatus("", "つながりません", "ntfy に接続できませんでした（" + e.message + "）。", "電波を確認して\n「今すぐ更新」を押してください。");
     $("list").innerHTML = '<li class="empty">読み込めませんでした。</li>';
   }
   $("updated").textContent = fmtTime(new Date()) + " 更新";
@@ -177,26 +181,45 @@ function setStatus(cls, label, detail, note){
   $("sNote").textContent = note || "";
 }
 
-function render(items){
-  if (!items.length){
-    setStatus("bad", "合図がありません", "この約12時間、合図が1つも届いていません。", "まず父に電話してみてください。");
-    $("list").innerHTML = '<li class="empty">表示できる合図はありません。</li>';
-    return;
-  }
-  const last = items[0];
-  const gap = Date.now() - last.at;
-  const k = KINDS[last.kind];
-  const lastText = "最後の合図：" + dayLabel(last.at) + " " + fmtTime(last.at) + "（" + ago(gap) + "）\n" + (k ? k.name : last.kind);
-  const charging = last.kind === "on" ? "いまは充電中です。夜はしばらく合図がなくても普通です。" : "";
-  if (gap >= BAD_HOURS * 3600000)      setStatus("bad",  "長く合図がありません", lastText, "父に電話してみてください。");
-  else if (gap >= WARN_HOURS * 3600000) setStatus("warn", "しばらく合図なし",   lastText, charging || "様子を見て、気になれば電話を。");
-  else                                  setStatus("ok",   "いつも通り",         lastText, charging);
+function at(base, hm){ const d = new Date(base); d.setHours(hm[0], hm[1], 0, 0); return d; }
 
-  $("list").innerHTML = items.map(it => {
+function judge(last, items){
+  const now = new Date();
+  const mFrom = at(now, MORNING_FROM), dayFrom = at(now, DAY_FROM), night = at(now, NIGHT_FROM);
+  const deadline = at(now, now.getDay() === 0 ? DEADLINE_SUN : DEADLINE_WEEK);
+  const dl = fmtTime(deadline);
+  if (now < mFrom || now >= night)
+    return ["", "夜間（監視なし）", "23:30〜朝は通知しません。朝の合図で確認します。"];
+  const morningOk = items.some(it => it.at >= mFrom);
+  if (!morningOk){
+    return now < deadline
+      ? ["warn", "朝の合図待ち", dl + " までに合図がなければ通知が届きます。"]
+      : ["bad",  "朝の合図がありません", "父に電話してみてください。"];
+  }
+  if (now < dayFrom) return ["ok", "いつも通り", "朝の合図がありました。"];
+  const gapH = (now - last.at) / 3600000;
+  const notifyAt = new Date(last.at.getTime() + DAY_GAP_HOURS * 3600000);
+  if (gapH >= DAY_GAP_HOURS) return ["bad", "長く合図がありません", "父に電話してみてください。"];
+  if (gapH >= DAY_GAP_HOURS - WARN_BEFORE_H)
+    return ["warn", "しばらく合図なし", fmtTime(notifyAt) + " までに合図がなければ通知が届きます。"];
+  return ["ok", "いつも通り", ""];
+}
+
+function render(items){
+  const last = items[0] || null;
+  let lastText = "直近約12時間、合図はありません。";
+  if (last){
+    const k = KINDS[last.kind];
+    lastText = "最後の合図：" + dayLabel(last.at) + " " + fmtTime(last.at) + "（" + ago(Date.now() - last.at) + "）\n" + (k ? k.name : last.kind);
+  }
+  const [cls, label, note] = judge(last, items);
+  const charging = last && last.kind === "on" ? "いまは充電中です。" : "";
+  setStatus(cls, label, lastText, [note, charging].filter(Boolean).join("\n"));
+  $("list").innerHTML = items.length ? items.map(it => {
     const kk = KINDS[it.kind] || {name:it.kind || "（不明な合図）", color:"#999"};
     return '<li><span class="time">' + fmtTime(it.at) + '<span class="day">' + dayLabel(it.at) + '</span></span>'
          + '<span class="kind"><span class="dot" style="background:' + kk.color + '"></span>' + escapeHtml(kk.name) + '</span></li>';
-  }).join("");
+  }).join("") : '<li class="empty">表示できる合図はありません。</li>';
 }
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
