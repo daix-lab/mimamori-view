@@ -68,7 +68,9 @@ button{
 }
 button.main{background:var(--ok);border-color:var(--ok);color:#fff;font-weight:700}
 button:focus-visible,input:focus-visible{outline:3px solid var(--warn);outline-offset:2px}
-.row{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+.top-right{display:flex;align-items:center;gap:10px}
+.far{margin-top:56px;padding-bottom:96px;text-align:center}
+button.quiet{border:0;background:none;color:var(--sub);font-size:.75rem;text-decoration:underline;padding:6px 10px}
 
 /* 合言葉の入力画面 */
 #setup{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-top:10px}
@@ -80,7 +82,10 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--warn);outline-o
 <body>
 <header>
   <h1>父の見守り</h1>
-  <span class="updated" id="updated"></span>
+  <div class="top-right">
+    <span class="updated" id="updated"></span>
+    <button id="reload">今すぐ更新</button>
+  </div>
 </header>
 
 <!-- 合言葉の入力（初回だけ） -->
@@ -103,9 +108,8 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--warn);outline-o
   <ul class="list" id="list"><li class="empty">読み込み中…</li></ul>
   <p class="foot">ntfy の記録は約12時間分です。<br>それより前の合図は出ません。<br>5分ごとに自動で更新します。</p>
 
-  <div class="row">
-    <button id="reload">今すぐ更新</button>
-    <button id="forget">合言葉を消す</button>
+  <div class="far">
+    <button id="forget" class="quiet">合言葉を消す</button>
   </div>
 </main>
 
