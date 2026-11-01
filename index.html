@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#eef1ef">
+<title>父の見守り</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏠</text></svg>">
+<style>
+/* ===== 判定の目安（仮）: mimamori.py の値に合わせて変えてください ===== */
+:root{
+  --bg:#eef1ef; --ink:#1f2a27; --sub:#5b6864; --line:#d3dad7; --card:#ffffff;
+  --ok:#2f8a5b; --ok-bg:#e1f2e8;
+  --warn:#b7791f; --warn-bg:#fbefd9;
+  --bad:#c0392b; --bad-bg:#fbe3e0;
+  --gray:#7a8581; --gray-bg:#e6eae8;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#151a19; --ink:#e7ecea; --sub:#a3afab; --line:#2c3533; --card:#1d2422;
+    --ok:#5cc28d; --ok-bg:#183326;
+    --warn:#e3a94b; --warn-bg:#3a2c14;
+    --bad:#f07a6c; --bad-bg:#3d1c19;
+    --gray:#9aa5a1; --gray-bg:#262e2c;
+    color-scheme: dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink)}
+body{
+  font-family:"Hiragino Sans","Noto Sans JP","Yu Gothic UI",sans-serif;
+  line-height:1.6;
+  padding:env(safe-area-inset-top,0) 16px calc(env(safe-area-inset-bottom,0) + 24px);
+  max-width:520px;margin:0 auto;
+}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 2px 8px}
+h1{font-size:1.15rem;margin:0;font-weight:700}
+.updated{font-size:.8rem;color:var(--sub)}
+
+/* 状態（いちばん大事な所） */
+.status{
+  border-radius:20px;padding:22px 20px;margin:6px 0 18px;
+  background:var(--gray-bg);border:2px solid var(--gray);
+}
+.status .label{font-size:2rem;font-weight:800;line-height:1.25;color:var(--gray)}
+.status .detail{margin-top:6px;font-size:1rem;white-space:pre-line}
+.status .note{margin-top:6px;font-size:.85rem;color:var(--sub)}
+.status.ok  {background:var(--ok-bg);  border-color:var(--ok)}   .status.ok .label{color:var(--ok)}
+.status.warn{background:var(--warn-bg);border-color:var(--warn)} .status.warn .label{color:var(--warn)}
+.status.bad {background:var(--bad-bg); border-color:var(--bad)}  .status.bad .label{color:var(--bad)}
+
+h2{font-size:1rem;margin:20px 2px 8px}
+.list{background:var(--card);border:1px solid var(--line);border-radius:14px;margin:0;padding:0;list-style:none}
+.list li{display:flex;gap:14px;align-items:center;padding:11px 14px;border-top:1px solid var(--line)}
+.list li:first-child{border-top:0}
+.time{font-variant-numeric:tabular-nums;font-weight:700;min-width:3.4em}
+.day{font-size:.75rem;color:var(--sub);font-weight:400;display:block}
+.kind{display:flex;align-items:center;gap:8px}
+.dot{width:10px;height:10px;border-radius:50%;flex:none}
+.empty{padding:16px 14px;color:var(--sub)}
+.foot{font-size:.8rem;color:var(--sub);margin:10px 2px 0}
+
+button,input{font:inherit}
+button{
+  border:1px solid var(--line);background:var(--card);color:var(--ink);
+  border-radius:10px;padding:8px 14px;cursor:pointer;
+}
+button.main{background:var(--ok);border-color:var(--ok);color:#fff;font-weight:700}
+button:focus-visible,input:focus-visible{outline:3px solid var(--warn);outline-offset:2px}
+.row{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+
+/* 合言葉の入力画面 */
+#setup{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-top:10px}
+#setup p{margin:0 0 10px}
+#setup input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);margin:6px 0 12px}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>父の見守り</h1>
+  <span class="updated" id="updated"></span>
+</header>
+
+<!-- 合言葉の入力（初回だけ） -->
+<section id="setup" class="hidden">
+  <p>合言葉を入れてください。<br>このスマホの中だけに保存されます。<br>ページには載りません。</p>
+  <label for="pw">合言葉（-hb より前の部分）</label>
+  <input id="pw" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <button class="main" id="save">保存して表示する</button>
+</section>
+
+<!-- 見守り画面 -->
+<main id="view" class="hidden">
+  <section class="status" id="status" aria-live="polite">
+    <div class="label" id="sLabel">確認中…</div>
+    <div class="detail" id="sDetail"></div>
+    <div class="note" id="sNote"></div>
+  </section>
+
+  <h2>合図の一覧（新しい順）</h2>
+  <ul class="list" id="list"><li class="empty">読み込み中…</li></ul>
+  <p class="foot">ntfy の記録は約12時間分です。<br>それより前の合図は出ません。<br>5分ごとに自動で更新します。</p>
+
+  <div class="row">
+    <button id="reload">今すぐ更新</button>
+    <button id="forget">合言葉を消す</button>
+  </div>
+</main>
+
+<script>
+// ===== 判定の目安（仮）: mimamori.py の値に合わせて変えてください =====
+const WARN_HOURS = 6;   // これ以上合図がないと「黄」
+const BAD_HOURS  = 10;  // これ以上合図がないと「赤」
+const REFRESH_MIN = 5;  // 自動更新の間隔（分）
+
+const KINDS = {
+  line: {name:"LINEを開いた",   color:"#06c755"},
+  tel:  {name:"電話を開いた",   color:"#3a7bd5"},
+  on:   {name:"充電器につないだ", color:"#b7791f"},
+  off:  {name:"充電器から外した", color:"#8a6fb0"},
+};
+const KEY = "mimamori-aikotoba";
+const $ = id => document.getElementById(id);
+
+function getPw(){ try{ return localStorage.getItem(KEY) || ""; }catch(e){ return ""; } }
+function setPw(v){ try{ localStorage.setItem(KEY, v); }catch(e){} }
+function delPw(){ try{ localStorage.removeItem(KEY); }catch(e){} }
+
+function fmtTime(d){ return d.toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}); }
+function dayLabel(d){
+  const t = new Date(); t.setHours(0,0,0,0);
+  const x = new Date(d); x.setHours(0,0,0,0);
+  const diff = Math.round((t - x) / 86400000);
+  return diff === 0 ? "今日" : diff === 1 ? "昨日" : (d.getMonth()+1) + "/" + d.getDate();
+}
+function ago(ms){
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return "たった今";
+  if (m < 60) return m + "分前";
+  const h = Math.floor(m / 60), r = m % 60;
+  return h + "時間" + (r ? r + "分" : "") + "前";
+}
+
+function parseKind(msg){
+  try{ const o = JSON.parse(msg); if (o && o.s) return o.s; }catch(e){}
+  return (msg || "").trim();
+}
+
+async function load(){
+  const pw = getPw();
+  if (!pw) return showSetup();
+  const url = "https://ntfy.sh/" + encodeURIComponent(pw + "-hb") + "/json?poll=1&since=12h";
+  try{
+    const res = await fetch(url, {cache:"no-store"});
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const text = await res.text();
+    const items = text.split("\n").filter(Boolean)
+      .map(l => { try{ return JSON.parse(l); }catch(e){ return null; } })
+      .filter(o => o && o.event === "message")
+      .map(o => ({ at:new Date(o.time * 1000), kind:parseKind(o.message) }))
+      .sort((a,b) => b.at - a.at);
+    render(items);
+  }catch(e){
+    setStatus("", "つながりません", "ntfy に接続できませんでした（" + e.message + "）。", "電波を確認して「今すぐ更新」を押してください。");
+    $("list").innerHTML = '<li class="empty">読み込めませんでした。</li>';
+  }
+  $("updated").textContent = fmtTime(new Date()) + " 更新";
+}
+
+function setStatus(cls, label, detail, note){
+  $("status").className = "status " + cls;
+  $("sLabel").textContent = label;
+  $("sDetail").textContent = detail;
+  $("sNote").textContent = note || "";
+}
+
+function render(items){
+  if (!items.length){
+    setStatus("bad", "合図がありません", "この約12時間、合図が1つも届いていません。", "まず父に電話してみてください。");
+    $("list").innerHTML = '<li class="empty">表示できる合図はありません。</li>';
+    return;
+  }
+  const last = items[0];
+  const gap = Date.now() - last.at;
+  const k = KINDS[last.kind];
+  const lastText = "最後の合図：" + dayLabel(last.at) + " " + fmtTime(last.at) + "（" + ago(gap) + "）\n" + (k ? k.name : last.kind);
+  const charging = last.kind === "on" ? "いまは充電中です。夜はしばらく合図がなくても普通です。" : "";
+  if (gap >= BAD_HOURS * 3600000)      setStatus("bad",  "長く合図がありません", lastText, "父に電話してみてください。");
+  else if (gap >= WARN_HOURS * 3600000) setStatus("warn", "しばらく合図なし",   lastText, charging || "様子を見て、気になれば電話を。");
+  else                                  setStatus("ok",   "いつも通り",         lastText, charging);
+
+  $("list").innerHTML = items.map(it => {
+    const kk = KINDS[it.kind] || {name:it.kind || "（不明な合図）", color:"#999"};
+    return '<li><span class="time">' + fmtTime(it.at) + '<span class="day">' + dayLabel(it.at) + '</span></span>'
+         + '<span class="kind"><span class="dot" style="background:' + kk.color + '"></span>' + escapeHtml(kk.name) + '</span></li>';
+  }).join("");
+}
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+function showSetup(){ $("setup").classList.remove("hidden"); $("view").classList.add("hidden"); $("pw").focus(); }
+function showView(){ $("setup").classList.add("hidden"); $("view").classList.remove("hidden"); load(); }
+
+$("save").onclick = () => {
+  let v = $("pw").value.trim().replace(/-hb$/, "");
+  if (!v) return;
+  setPw(v); $("pw").value = ""; showView();
+};
+$("pw").addEventListener("keydown", e => { if (e.key === "Enter") $("save").click(); });
+$("reload").onclick = load;
+$("forget").onclick = () => {
+  if (confirm("このスマホから合言葉を消しますか？（もう一度入れれば元に戻ります）")){ delPw(); showSetup(); }
+};
+document.addEventListener("visibilitychange", () => { if (!document.hidden && getPw()) load(); });
+setInterval(() => { if (!document.hidden && getPw()) load(); }, REFRESH_MIN * 60000);
+
+getPw() ? showView() : showSetup();
+</script>
+</body>
+</html>
