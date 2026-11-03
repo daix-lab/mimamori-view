@@ -46,7 +46,11 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--warn);outline-o
 /* 上の部分 */
 .top{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 2px 10px}
 .who{display:flex;align-items:center;gap:10px;min-width:0}
-.avatar{width:44px;height:44px;border-radius:50%;background:var(--card);border:1px solid var(--line);flex:none;display:grid;place-items:center;color:var(--sub)}
+.avatar{width:44px;height:44px;border-radius:50%;background:var(--card);border:1px solid var(--line);flex:none;display:grid;place-items:center;color:var(--sub);overflow:hidden}
+.avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.avatar svg{width:26px;height:26px}
+.avatar.big{width:64px;height:64px}
+.avatar.big svg{width:36px;height:36px}
 .who b{display:block;font-size:1.1rem;line-height:1.2}
 .who small{color:var(--sub);font-size:.75rem}
 .top-right{display:flex;align-items:center;gap:8px;flex:none}
@@ -104,6 +108,13 @@ h2{font-size:1rem;margin:4px 2px 8px}
 .far{margin-top:56px;text-align:center}
 button.quiet{border:0;background:none;color:var(--sub);font-size:.75rem;text-decoration:underline;padding:6px 10px}
 
+/* 表示（名前・写真） */
+.prof{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+.prof-btns{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.namerow{display:flex;gap:8px;margin-top:4px}
+.namerow input{flex:1;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+label.small{display:block;margin:0 0 2px}
+
 /* 合言葉の入力画面 */
 #setup{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-top:14px}
 #setup h1{font-size:1.15rem;margin:0 0 10px}
@@ -128,10 +139,8 @@ button.quiet{border:0;background:none;color:var(--sub);font-size:.75rem;text-dec
   <section id="tab-home">
     <header class="top">
       <div class="who">
-        <span class="avatar" aria-hidden="true">
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
-        </span>
-        <div><b>お父さん</b><small>見守り中</small></div>
+        <span class="avatar" id="avatar" aria-hidden="true"></span>
+        <div><b id="whoName">親父</b><small>見守り中</small></div>
       </div>
       <div class="top-right">
         <span class="updated" id="updated"></span>
@@ -160,6 +169,23 @@ button.quiet{border:0;background:none;color:var(--sub);font-size:.75rem;text-dec
   <!-- 設定 -->
   <section id="tab-set" class="hidden">
     <header class="top"><div class="who"><div><b>設定</b><small>見守りのルール</small></div></div></header>
+    <div class="card">
+      <h3>表示</h3>
+      <div class="prof">
+        <span class="avatar big" id="avatar2" aria-hidden="true"></span>
+        <div class="prof-btns">
+          <button id="pickPhoto">写真を選ぶ</button>
+          <button id="delPhoto" class="quiet">写真を消す</button>
+        </div>
+      </div>
+      <input type="file" id="photoFile" accept="image/*" class="hidden">
+      <label for="nameIn" class="small">呼び方</label>
+      <div class="namerow">
+        <input id="nameIn" type="text" maxlength="12" autocomplete="off">
+        <button id="saveName" class="main">保存</button>
+      </div>
+      <p class="small" id="profMsg">名前と写真は、このスマホの中だけに保存されます。</p>
+    </div>
     <div class="card">
       <h3>判定のルール</h3>
       <ul class="rules" id="rules"></ul>
@@ -211,11 +237,15 @@ const KINDS = {
 };
 const UNKNOWN_ICON = SVG('<circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/>');
 const KEY = "mimamori-aikotoba";
+const NAME_KEY = "mimamori-name", PHOTO_KEY = "mimamori-photo", DEFAULT_NAME = "親父";
+const DEFAULT_AVATAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>';
 const $ = id => document.getElementById(id);
 
 function getPw(){ try{ return localStorage.getItem(KEY) || ""; }catch(e){ return ""; } }
 function setPw(v){ try{ localStorage.setItem(KEY, v); }catch(e){} }
 function delPw(){ try{ localStorage.removeItem(KEY); }catch(e){} }
+function getStore(k){ try{ return localStorage.getItem(k) || ""; }catch(e){ return ""; } }
+function setStore(k, v){ try{ if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); return true; }catch(e){ return false; } }
 
 function fmtTime(d){ return d.toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}); }
 function hm(a){ return a[0] + ":" + String(a[1]).padStart(2, "0"); }
@@ -334,6 +364,44 @@ function renderRules(){
   $("rules").innerHTML = rows.map(r => '<li><span>' + escapeHtml(r[0]) + '</span><span>' + escapeHtml(r[1]) + '</span></li>').join("");
 }
 
+function profMsg(t){ $("profMsg").textContent = t; }
+function applyProfile(){
+  const name = getStore(NAME_KEY) || DEFAULT_NAME;
+  const photo = getStore(PHOTO_KEY);
+  $("whoName").textContent = name;
+  $("nameIn").value = name;
+  const html = photo ? '<img alt="" src="' + photo + '">' : DEFAULT_AVATAR;
+  $("avatar").innerHTML = html; $("avatar2").innerHTML = html;
+  $("delPhoto").classList.toggle("hidden", !photo);
+}
+$("saveName").onclick = () => {
+  const v = $("nameIn").value.trim();
+  const ok = setStore(NAME_KEY, v === DEFAULT_NAME ? "" : v);
+  applyProfile();
+  profMsg(ok ? "名前を保存しました。" : "保存できませんでした。");
+};
+$("nameIn").addEventListener("keydown", e => { if (e.key === "Enter") $("saveName").click(); });
+$("pickPhoto").onclick = () => $("photoFile").click();
+$("photoFile").onchange = e => {
+  const f = e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  const url = URL.createObjectURL(f), img = new Image();
+  img.onload = () => {
+    const S = 160, c = document.createElement("canvas"); c.width = c.height = S;
+    const m = Math.min(img.width, img.height);
+    c.getContext("2d").drawImage(img, (img.width - m) / 2, (img.height - m) / 2, m, m, 0, 0, S, S);
+    URL.revokeObjectURL(url);
+    const ok = setStore(PHOTO_KEY, c.toDataURL("image/jpeg", 0.85));
+    applyProfile();
+    profMsg(ok ? "写真を保存しました。" : "保存できませんでした。");
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); profMsg("この写真は読み込めませんでした。"); };
+  img.src = url;
+};
+$("delPhoto").onclick = () => {
+  if (confirm("写真を消して、元のアイコンに戻しますか？")){ setStore(PHOTO_KEY, ""); applyProfile(); profMsg("写真を消しました。"); }
+};
+
 function showTab(name){
   $("tab-home").classList.toggle("hidden", name !== "home");
   $("tab-set").classList.toggle("hidden", name !== "set");
@@ -360,6 +428,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden && ge
 setInterval(() => { if (!document.hidden && getPw()) load(); }, REFRESH_MIN * 60000);
 
 renderRules();
+applyProfile();
 getPw() ? showView() : showSetup();
 </script>
 </body>
